@@ -7,6 +7,7 @@ import torch
 
 import random
 from collections import namedtuple, deque
+SEQ_LEN = 5
 
 
 Transition = namedtuple('Transition',
@@ -18,12 +19,13 @@ class ReplayMemory(object):
     def __init__(self, capacity):
         self.memory = deque([], maxlen=capacity)
 
-    def push(self, *args):
+    def push(self, seq):
         """Save a transition"""
-        self.memory.append(Transition(*args))
+        self.memory.append(seq)
 
     def sample(self, batch_size):
         return random.sample(self.memory, batch_size)
+
 
     def __len__(self):
         return len(self.memory)
