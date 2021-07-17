@@ -42,27 +42,6 @@ def setup(cfg):
 def optimize_model(memory, model, optimizer, scheduler):
     # get batch of samples
     transitions = memory.sample(cfg['batch_size'])
-    # memory = deque([], maxlen=cfg['batch_size'])
-    # for i in range(cfg['batch_size']):
-    #     memory.append(transitions[i][cfg['seq_len']-1])
-    # batch = Transition(*zip(*memory))
-    # # construct a training batch
-    # state_batch = torch.cat(batch.state)
-    # one_hot_action_batch = torch.cat(batch.action)
-    # action_batch = torch.argmax(one_hot_action_batch, dim=-1)
-    # next_state_batch = torch.cat(batch.next_state)
-    # reward_batch = torch.stack(batch.reward)
-    #
-    # # compute logps
-    # logits, values = model.policy_net(state_batch.to(device))
-    # logps = Categorical(logits=logits).log_prob(action_batch.to(device))
-    #
-    # # compute forward and inverse loss
-    # forward_loss, pred_action = model(transitions)
-    # inverse_loss = F.cross_entropy(pred_action, action_batch.to(device))
-    # # forward_loss = F.mse_loss(pred_next_state_feature, real_next_state_feature)
-    # # backward and update weights
-    # loss = -torch.mean(logps*reward_batch) + inverse_loss*cfg['alpha'] + forward_loss*cfg['beta']
     loss = model(transitions)
     optimizer.zero_grad()
     loss.backward()
@@ -77,12 +56,14 @@ def train(epoch, memory, model, optimizer, scheduler, episode_len=32):
     # initialize state
     state = game.get_state().screen_buffer.transpose(VIZDOOM_TO_TF)
     state = transform_train(state).unsqueeze(0)
-    loss = None
-    for t in tqdm(range(episode_len)):
+    loss = 0
+    for _ in tqdm(range(episode_len)):
         seq = []
+        h_t = c_t = torch.randn(1, cfg['state_feature_dim'], device=device)
+        MEMORY = []
         for _ in range(cfg['seq_len']):
             # sampling an action from policy
-            action = model.get_action(state.to(device))
+            action, (h_t, c_t) = model.get_action(state.to(device), h_t, c_t)
             # execute an action
             one_hot_action = ACTIONS.copy()
             one_hot_action[action] = 1
@@ -90,12 +71,11 @@ def train(epoch, memory, model, optimizer, scheduler, episode_len=32):
                 game.make_action(one_hot_action)
             # compute reward
             next_state = game.get_state().screen_buffer.transpose(VIZDOOM_TO_TF)
-            next_state = transform_train(next_state).unsqueeze(0)
-            one_hot_action = torch.tensor(one_hot_action, dtype=torch.float32).unsqueeze(0)
-            reward = model.compute_intrinsic(state.to(device), next_state.to(device), one_hot_action.to(device))
+            next_state = transform_train(next_state).unsqueeze(0).to(device)
+            one_hot_action = torch.tensor(one_hot_action, dtype=torch.float32, device=device).unsqueeze(0)
+            reward = model.compute_intrinsic(state, next_state, one_hot_action, MEMORY)
 
             # Store the transition in memory
-
             seq.append(Transition(*(state, one_hot_action, next_state, reward)))
             #memory.push(state, one_hot_action, next_state, reward)
             # Move to the next state
